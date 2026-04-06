@@ -1,0 +1,11 @@
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+pydantic-settings==2.5.2
+psycopg[binary]==3.2.13
+redis==5.1.1
+SQLAlchemy==2.0.35
+PyJWT==2.9.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+email-validator==2.2.0
+APScheduler==3.10.4
