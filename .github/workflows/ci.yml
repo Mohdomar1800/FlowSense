@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  # Shared by every job that talks to the database.
+  POSTGRES_USER: flowsense
+  POSTGRES_PASSWORD: flowsense
+  POSTGRES_DB: flowsense
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff==0.8.4
+      - run: ruff check backend desktop e2e
+      - run: ruff format --check backend desktop e2e
+
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flowsense
+          POSTGRES_PASSWORD: flowsense
+          POSTGRES_DB: flowsense
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flowsense" --health-interval 5s --health-timeout 3s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Migrations apply cleanly and match the models
+        run: |
+          alembic upgrade head
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
+      - name: Tests
+        run: pytest
+
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements*.txt
+            desktop/requirements.txt
+      # The GUI toolkit (pywebview) isn't needed for the agent's logic tests.
+      - run: pip install -r ../backend/requirements-dev.txt plyer==2.1.0 opencv-python-headless==4.10.0.84 numpy==2.1.3
+      - run: pytest
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, desktop]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flowsense
+          POSTGRES_PASSWORD: flowsense
+          POSTGRES_DB: flowsense
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U flowsense" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      JWT_SECRET_KEY: ci-only-secret-not-used-anywhere-else-0123456789
+      SCHEDULER_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements*.txt
+            e2e/requirements.txt
+      - run: pip install -r backend/requirements.txt -r e2e/requirements.txt plyer==2.1.0 opencv-python-headless==4.10.0.84 numpy==2.1.3
+      - run: python -m playwright install --with-deps chromium
+      - name: Start the server
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          python -m scripts.seed_demo_data
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > ../server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
+      - run: python e2e/ui_smoke.py
+      - run: python e2e/agent_flow.py
+      - run: python e2e/camera_flow.py
+      - run: python e2e/dashboard_smoke.py
+      - run: python e2e/reports_smoke.py
+      - name: Screenshots and server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: |
+            e2e/shots/
+            server.log
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t flowsense-api ./backend
+      - run: docker compose config --quiet
+
+  windows-app:
+    runs-on: windows-latest
+    needs: [backend, desktop]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements*.txt
+            desktop/requirements.txt
+      - run: pip install -r desktop/requirements.txt pyinstaller==6.11.1
+      - name: Start the PostgreSQL that ships with the runner image
+        shell: pwsh
+        run: |
+          $service = Get-Service -Name "postgresql*"
+          Set-Service -InputObject $service -Status Running -StartupType Automatic
+          $env:PGPASSWORD = "root"
+          & "$env:PGBIN\psql.exe" -U postgres -c "CREATE ROLE flowsense LOGIN SUPERUSER PASSWORD 'flowsense';"
+          & "$env:PGBIN\psql.exe" -U postgres -c "CREATE DATABASE flowsense OWNER flowsense;"
+      - name: Build FlowSense.exe
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          python -m PyInstaller desktop/packaging/flowsense.spec --distpath build/dist --workpath build/work --noconfirm
+      - name: Self-check the packaged app
+        shell: pwsh
+        env:
+          REDIS_ENABLED: "false"
+        run: |
+          $check = Start-Process -FilePath build/dist/FlowSense/FlowSense.exe -ArgumentList "--check", "--url", "http://127.0.0.1:8099" -Wait -PassThru -NoNewWindow
+          if ($check.ExitCode -ne 0) { Get-Content "$env:LOCALAPPDATA/FlowSense/logs/flowsense.log"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowSense-windows
+          path: build/dist/FlowSense/

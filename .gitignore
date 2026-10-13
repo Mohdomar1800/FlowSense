@@ -1,7 +1,35 @@
+# Secrets and local configuration (.env.example is the committed template)
+.env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
-.env
+venv/
+
+# Tool caches and test output
 .pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+e2e/shots/
+
+# Build output (PyInstaller)
+build/
+dist/
+
+# Runtime files (the app keeps these in %APPDATA% / %LOCALAPPDATA%, never in the repo)
+*.log
+*.onnx
+
+# Editors and OS
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# Private study notes
+study/

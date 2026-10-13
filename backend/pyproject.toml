@@ -1,0 +1,17 @@
+[project]
+name = "flowsense-backend"
+version = "0.2.0"
+requires-python = ">=3.12,<3.14"  # pinned numpy/psycopg wheels stop at 3.13
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+timeout = 60
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]  # FastAPI's Query()/Depends() defaults

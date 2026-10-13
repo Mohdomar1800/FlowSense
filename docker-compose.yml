@@ -1,18 +1,27 @@
+# Full stack:      docker compose up --build
+# Only databases:  docker compose up -d postgres redis   (then run the API locally from backend/)
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: flowsense-api
     env_file:
-      - .env
+      - path: .env
+        required: false
+    environment:
+      # Inside the compose network, services are reached by name rather than localhost.
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
-      - .:/app
+      # The web UI, served by the API at http://127.0.0.1:8000
+      - ./frontend:/frontend:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -21,20 +30,32 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-flowsense}
       POSTGRES_USER: ${POSTGRES_USER:-flowsense}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowsense}
+    # Tuned for a small single-machine workload to keep memory use low.
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c max_connections=25
+      -c work_mem=2MB
+      -c maintenance_work_mem=16MB
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flowsense} -d ${POSTGRES_DB:-flowsense}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     container_name: flowsense-redis
+    # Pure cache: bounded memory, evict least-recently-used keys, no disk persistence.
+    command: redis-server --maxmemory 32mb --maxmemory-policy allkeys-lru --save "" --appendonly no
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
-  redis_data:

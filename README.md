@@ -1,564 +1,279 @@
+<div align="center">
+
+<img src="frontend/assets/icon.svg" width="72" alt="FlowSense logo" />
+
 # FlowSense
-# FlowSense
 
-FlowSense is a backend-first productivity intelligence system that helps users track deep work, capture distractions, and convert raw behavior into actionable recommendations.
+**A desktop focus tracker that notices when you drift and helps you build better study and work habits.**
 
-The project is designed as a production-style API service using FastAPI + PostgreSQL + Redis, with JWT authentication, background scheduling, analytics caching, and deterministic (rule-based) insight generation.
+Start a focus session with one click. FlowSense watches which app or site you're on and, if you allow it,
+whether you've picked up your phone. It nudges you back when you drift, and turns your sessions into a
+dashboard, personal tips, and daily and weekly reports.
 
----
+Everything runs on your own computer. Your data stays in your own database.
 
-## Table of Contents
+</div>
 
-1. [What FlowSense Solves](#what-flowsense-solves)
-2. [Core Product Capabilities](#core-product-capabilities)
-3. [System Architecture](#system-architecture)
-4. [Technology Stack](#technology-stack)
-5. [Project Structure](#project-structure)
-6. [Environment Configuration](#environment-configuration)
-7. [Local Setup (Step by Step)](#local-setup-step-by-step)
-8. [Running the Service](#running-the-service)
-9. [Database Schema Overview](#database-schema-overview)
-10. [Authentication Model](#authentication-model)
-11. [API Reference](#api-reference)
-    - [Health Endpoints](#health-endpoints)
-    - [Auth Endpoints](#auth-endpoints)
-    - [Focus Session Endpoints](#focus-session-endpoints)
-    - [Distraction Endpoints](#distraction-endpoints)
-    - [Analytics Endpoint](#analytics-endpoint)
-    - [Insights Endpoint](#insights-endpoint)
-    - [Reports Endpoint](#reports-endpoint)
-12. [Caching Strategy](#caching-strategy)
-13. [Scheduler and Automated Reports](#scheduler-and-automated-reports)
-14. [Demo Data Seeding](#demo-data-seeding)
-15. [Error Handling and API Behavior](#error-handling-and-api-behavior)
-16. [Known Runtime Notes](#known-runtime-notes)
-17. [How to Extend FlowSense](#how-to-extend-flowsense)
+<p align="center">
+  <img src="docs/images/home.png" width="49%" alt="Focus screen with a running session" />
+  <img src="docs/images/dashboard.png" width="49%" alt="Dashboard with weekly charts" />
+</p>
 
 ---
 
-## What FlowSense Solves
+## Contents
 
-Most productivity tools stop at timers and checklists. FlowSense focuses on **behavioral feedback loops**:
-
-- Track where focused time is actually spent.
-- Capture distraction events (manual and inferred).
-- Aggregate data into measurable patterns.
-- Generate practical recommendations users can act on.
-- Produce periodic summaries without manual effort.
-
-In short: **FlowSense is not only a tracker, it is a decision-support backend for deep work habits.**
+1. [Features](#features)
+2. [How it works](#how-it-works)
+3. [Quick start](#quick-start)
+4. [Using FlowSense](#using-flowsense)
+5. [Privacy](#privacy)
+6. [Troubleshooting](#troubleshooting)
+7. [For developers](#for-developers)
 
 ---
 
-## Core Product Capabilities
+## Features
 
-- **User authentication with JWT**
-- **Focus session lifecycle** (start / stop / pause with split behavior)
-- **Distraction event logging** (manual and inferred)
-- **Productivity analytics** (period-based aggregate metrics)
-- **Rule-based insights** (best focus window, trend cues)
-- **Scheduled reports** (daily + weekly)
-- **Redis-backed analytics caching** with invalidation on writes
-- **Report retrieval with pagination + filtering**
+| | |
+|---|---|
+| **One-click focus sessions** | Start, pause, resume and stop with one button (or the Space key). Long breaks automatically start a fresh session. |
+| **Screen tracking** | Knows if you're on Coursera, VS Code or a lecture on YouTube (on task) or on Instagram, Netflix or a random video (off task). After a short grace period it nudges you back. |
+| **Phone detection** | Optional. Uses your webcam to notice when you pick up your phone, without confusing it with looking down to write notes. |
+| **Focus score** | Each session gets a 0–100 score based on distractions and breaks. |
+| **Dashboard** | Focus per day, your best hours, focus by subject, top distractions, and screen time, by day, week or month. |
+| **Insights** | Personal tips backed by your own data, such as *"Distractions climb after about 45 minutes. Try 40-minute sessions."* |
+| **Reports** | A recap after every day and week, with highlights and one goal to work on. Export to Markdown or PDF. |
+| **Made for you** | Tags for subjects or projects, your own allow and block rules, a daily goal, and light and dark themes. |
 
----
-
-## System Architecture
-
-FlowSense follows a layered backend architecture:
-
-1. **API Layer (`app/api`)**
-   - FastAPI routers define request/response contracts.
-   - Input is validated with Pydantic schemas.
-   - Protected routes use Bearer token auth dependency.
-
-2. **Service Layer (`app/services`)**
-   - Business logic is centralized here.
-   - Session/distraction mutations live here.
-   - Analytics/report generation and cache behavior are implemented here.
-
-3. **Persistence Layer (`app/models`, `app/db`, `sql/schema.sql`)**
-   - SQLAlchemy models map to PostgreSQL tables.
-   - SQL bootstrap file initializes schema on container startup.
-
-4. **Background Processing**
-   - APScheduler runs daily and weekly report jobs.
-
-5. **Caching Layer**
-   - Redis stores analytics responses with TTL.
+<p align="center">
+  <img src="docs/images/drift-alert.png" width="49%" alt="Alert after drifting to YouTube" />
+  <img src="docs/images/report.png" width="49%" alt="Weekly report" />
+</p>
 
 ---
 
-## Technology Stack
+## How it works
 
-- **Framework:** FastAPI
-- **Database:** PostgreSQL 16
-- **ORM:** SQLAlchemy 2
-- **Cache:** Redis 7
-- **Auth:** JWT (PyJWT) + bcrypt hashing (passlib)
-- **Scheduler:** APScheduler
-- **Containerization:** Docker + Docker Compose
-
----
-
-## Project Structure
-
-```text
-app/
-  api/            # HTTP routes
-  core/           # settings/config
-  db/             # SQLAlchemy base/session dependencies
-  models/         # DB models
-  schemas/        # request/response contracts
-  services/       # business logic
-  main.py         # FastAPI app entrypoint
-sql/
-  schema.sql      # bootstrap schema executed by postgres container
-scripts/
-  seed_demo_data.py
+```mermaid
+flowchart LR
+    subgraph PC["Your computer"]
+        UI["App window<br/>(HTML, CSS, JavaScript)"]
+        Agent["Focus agent<br/>screen + camera tracking"]
+        API["FlowSense server<br/>(Python, FastAPI)"]
+        DB[("PostgreSQL<br/>your data")]
+        Cache[("Redis<br/>cache, optional")]
+    end
+    UI -- "requests (HTTP)" --> API
+    API -- "live updates (WebSocket)" --> UI
+    Agent -- "what's on screen, phone seen" --> API
+    API --> DB
+    API --> Cache
 ```
 
----
-
-## Environment Configuration
-
-Create `.env` from `.env.example` and update as needed.
-
-### Variables
-
-- `APP_NAME`, `APP_ENV`, `APP_DEBUG`
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`
-- `REDIS_HOST`, `REDIS_PORT`
-- `ANALYTICS_CACHE_TTL_SECONDS`
-- `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`
+- The **app window** is what you click and read.
+- The **focus agent** runs in the background during a session. Once a second it checks which window is in
+  front and, if camera tracking is on, looks for a phone. It only reports small facts such as
+  "VS Code, on task" or "phone in use".
+- The **server** stores everything, decides what counts as a distraction, and calculates your scores,
+  dashboard, insights and reports. It pushes changes to the window instantly.
+- **PostgreSQL** is the database. **Redis** is an optional speed-up.
 
 ---
 
-## Local Setup (Step by Step)
+## Quick start
 
-### 1) Clone and enter repo
+These steps are for **Windows**. macOS and Linux work the same way; use `python3.13 -m venv .venv` and `source .venv/bin/activate`.
 
-```bash
-git clone <your-repo-url>
+### What you need
+
+- [Python 3.13](https://www.python.org/downloads/windows/) (3.12 also works; 3.14 is not supported yet).
+  On Windows you can run `winget install Python.Python.3.13`.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) to run the database
+  (or a normal [PostgreSQL 16](https://www.postgresql.org/download/) install, see [below](#running-postgresql-without-docker))
+
+### 1. Get the code
+
+```powershell
+git clone https://github.com/Mohdomar1800/FlowSense.git
 cd FlowSense
 ```
 
-### 2) Create environment file
+### 2. Start the database
 
-```bash
-cp .env.example .env
+```powershell
+copy .env.example .env
+docker compose up -d postgres redis
 ```
 
-### 3) Start all services
+### 3. Install FlowSense
 
-```bash
-docker compose up --build
+```powershell
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+pip install -r desktop\requirements.txt
 ```
 
-This brings up:
+`py -3.13` picks Python 3.13 even if you have other versions installed.
 
-- API on `http://localhost:8000`
-- PostgreSQL on `localhost:5432`
-- Redis on `localhost:6379`
+### 4. Open the app
 
-### 4) Open interactive docs
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### 5) (Optional) Seed demo data
-
-```bash
-python scripts/seed_demo_data.py
+```powershell
+pythonw desktop\flowsense.py
 ```
+
+The FlowSense window opens. **Create an account**, then answer three quick setup questions:
+your daily goal, your subjects, and whether to use screen and camera tracking. That's it. Press **Start focus**.
+
+> **Want to try it with sample data first?** Run
+> `cd backend; alembic upgrade head; python -m scripts.seed_demo_data` and sign in as
+> `demo@example.com` / `demo-password`, which has two weeks of history. Add `--reset` later to recreate it
+> with history that ends yesterday.
+
+### Optional: install it as a normal app
+
+Build a `FlowSense.exe` and add it to the Start Menu and Desktop (no admin rights needed):
+
+```powershell
+pip install pyinstaller==6.11.1
+powershell -ExecutionPolicy Bypass -File desktop\packaging\build-windows.ps1
+powershell -ExecutionPolicy Bypass -File desktop\packaging\install-windows.ps1
+```
+
+Your settings live in `%APPDATA%\FlowSense\config.env` (created on first run with a random secret key) and
+logs in `%LOCALAPPDATA%\FlowSense\logs`. Run `FlowSense.exe --check` at any time to test the setup.
+
+> The `.exe` is not code-signed, so Windows **Smart App Control** (on by default on new Windows 11 PCs)
+> may block it. If so, keep using `pythonw desktop\flowsense.py`; it is the same app.
+
+### Optional: use it in a browser
+
+`docker compose up --build` runs everything, including the server, in Docker. Open **http://127.0.0.1:8000**.
+Screen and phone tracking need the desktop app; everything else works in the browser.
 
 ---
 
-## Running the Service
+## Using FlowSense
 
-The default container command starts uvicorn with:
+### Focus
 
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+1. Type what you're working on (optional, but it makes screen tracking smarter) and pick a tag.
+2. Press **Start focus** (or the **Space** key). The button becomes a live timer.
+3. **Pause** for short breaks. A break longer than your *long break* setting (5 minutes by default) saves
+   the session and starts a new one when you come back.
+4. Press **Stop** when you're done. You'll see how long you focused and your focus score.
+
+Click any session in **Today** to see its timeline, rename it, change its tag, or delete it.
+
+### When you drift
+
+- **Screen:** after a short grace period (15 seconds by default) on an off-task app or site, you get a desktop
+  notification and an alert in the app. If FlowSense got it wrong, click **Not a distraction**, or
+  **Always allow** so it never flags that app or site again.
+- **Phone:** if the camera sees you using your phone for a few seconds, you get a *"Phone down?"* nudge.
+  Writing notes or a phone lying on the desk doesn't count.
+- **Away:** five minutes without keyboard or mouse activity is logged as stepping away, unless you're on
+  something like a lecture video, where no input is normal.
+
+### Review your progress
+
+- **Dashboard:** your focus by day, week or month, compared with the period before, and a heatmap of the hours you focus best.
+- **Insights:** a few specific tips based on your last four weeks. The top one also appears on the Focus screen.
+- **Reports:** a recap appears after every day and week you focus. Open one, then **Export Markdown** or **Save as PDF**.
+
+### Settings
+
+Change your timezone, daily goal, break and grace times, tags, and screen-tracking rules
+(for example *always allow "discord"*), and choose a light, dark or system theme.
+You can also change your password (this signs out other devices) or delete your account and all its data.
+
+---
+
+## Privacy
+
+- **No screenshots.** Screen tracking only uses the name of the app in front and its window title.
+- **No video leaves your computer.** Camera frames are analyzed in memory once a second and immediately
+  thrown away. The camera is only on during an active session, and Home shows a **Camera on** badge when it is.
+- Both trackers are **switched off** whenever no session is running, and each can be turned off in Settings.
+- All data is stored in **your own PostgreSQL database**. Passwords are hashed with bcrypt.
+
+---
+
+## Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| The window says **"Database unavailable"** | Start PostgreSQL: `docker compose up -d postgres redis`, then reopen FlowSense. |
+| **"Can't reach the FlowSense server"** in a browser | The server isn't running. Start the desktop app, or `docker compose up`. |
+| **"Port 8000 is already used by another program"** | Another app is using port 8000. Close it, or start FlowSense on another port: `pythonw desktop\flowsense.py --url http://127.0.0.1:8010`. |
+| No screen alerts | Screen tracking must be on in Settings, and a session must be running (not paused). |
+| **"Camera unavailable"** | Another app (Zoom, Teams…) may be using the camera. FlowSense retries automatically. |
+| Phone detection seems off | Run `python desktop\camera_check.py` to see what the camera detects, live, for 30 seconds. |
+| *"An Application Control policy has blocked this file"* | Smart App Control blocks the unsigned `FlowSense.exe`. Run `pythonw desktop\flowsense.py` instead. |
+| macOS: no screen tracking | Allow FlowSense in System Settings → Privacy & Security → Accessibility. |
+
+### Running PostgreSQL without Docker
+
+Docker Desktop itself uses 1–2 GB of memory on Windows. For the lightest setup, install PostgreSQL 16 and run once:
+
+```sql
+CREATE ROLE flowsense LOGIN PASSWORD 'choose-a-password';
+CREATE DATABASE flowsense OWNER flowsense;
 ```
 
-For local non-container usage, ensure dependencies are installed first:
+Put that password in `%APPDATA%\FlowSense\config.env` (read by the desktop app) and in `.env` (read by the
+server when you start it with `uvicorn` or Docker). Redis is optional: set `REDIS_ENABLED=false`.
 
-```bash
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload
+---
+
+## For developers
+
+### Tech stack
+
+| Part | Technology |
+|---|---|
+| Server | Python 3.13, FastAPI, Pydantic, SQLAlchemy 2, Alembic migrations, APScheduler |
+| Data | PostgreSQL 16; Redis 7 for caching, live-update fan-out (pub/sub) and login rate limiting |
+| Frontend | Plain HTML, CSS and JavaScript modules (no framework), Chart.js |
+| Desktop | pywebview (native window), Win32 API through ctypes, plyer notifications |
+| Vision | OpenCV DNN running YuNet (face) and YOLOX-Nano (phone), both ONNX |
+| Quality | pytest (backend + agent), Playwright end-to-end tests, ruff, GitHub Actions |
+| Packaging | Docker Compose; PyInstaller for `FlowSense.exe` |
+
+### Project layout
+
+```text
+backend/     FastAPI server: api/ (routes), services/ (logic), models/ (tables), schemas/, alembic/ (migrations), tests/
+frontend/    the web UI served by the server: index.html, css/, js/ (one module per page)
+desktop/     native app: flowsense.py (launcher), agent/ (screen + camera tracking), packaging/, tests/
+e2e/         end-to-end tests that drive the real UI in a browser
+.github/     CI workflow
 ```
 
----
+### Running the server and tests
 
-## Database Schema Overview
-
-### Core tables
-
-- `users`
-- `session_tags`
-- `focus_sessions`
-- `distraction_events`
-- `report_logs`
-
-### Important constraints and indexes
-
-- Unique user emails
-- Unique `(user_id, tag_name)` in `session_tags`
-- Session integrity check: `end_time >= start_time`
-- Time-window indexes for session/distraction analytics queries
-- User + created_at index for report listing
-
----
-
-## Authentication Model
-
-FlowSense uses JWT bearer tokens.
-
-### Auth flow
-
-1. Register user via `/auth/register`
-2. Login via `/auth/login` to receive `access_token`
-3. Pass token in header for protected endpoints:
-
-```http
-Authorization: Bearer <token>
+```powershell
+docker compose up -d postgres redis
+cd backend
+pip install -r requirements-dev.txt
+alembic upgrade head
+uvicorn app.main:app --reload       # http://127.0.0.1:8000, API docs at /docs
+pytest                              # backend tests (uses its own flowsense_test database)
+cd ..\desktop; pytest               # desktop agent tests
+ruff check backend desktop e2e      # lint
 ```
 
-### Protected routes include
-
-- `/auth/me`
-- `/sessions/*`
-- `/distractions/*`
-- `/analytics/*`
-- `/insights/*`
-- `/reports`
-
----
-
-## API Reference
-
-Base URL (local): `http://localhost:8000`
-
----
-
-### Health Endpoints
-
-#### `GET /health`
-Simple liveness check.
-
-**Response (200):**
-
-```json
-{ "status": "ok" }
-```
-
-#### `GET /ready`
-Readiness + environment metadata.
-
-**Response (200):** includes env, DB URL, Redis URL.
-
----
-
-### Auth Endpoints
-
-#### `POST /auth/register`
-Create new user.
-
-**Body:**
-
-```json
-{
-  "email": "user@example.com",
-  "password": "strong-password",
-  "timezone": "UTC"
-}
-```
-
-**Response (201):** user profile.
-
-#### `POST /auth/login`
-Authenticate user and issue JWT.
-
-**Body:**
-
-```json
-{
-  "email": "user@example.com",
-  "password": "strong-password"
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "access_token": "<jwt>",
-  "token_type": "bearer"
-}
-```
-
-#### `GET /auth/me`
-Get current authenticated user.
-
----
-
-### Focus Session Endpoints
-
-#### `POST /sessions/start`
-Start new focus session.
-
-**Body:**
-
-```json
-{
-  "tag_id": 1,
-  "start_time": "2026-04-02T10:00:00Z"
-}
-```
-
-- `start_time` is optional (defaults to current UTC time).
-- Rejects if user already has an active session.
-
-#### `POST /sessions/stop`
-Stop currently active session and compute duration.
-
-**Body:**
-
-```json
-{
-  "end_time": "2026-04-02T11:15:00Z"
-}
-```
-
-- `end_time` optional (defaults to current UTC).
-- Validates `end_time >= start_time`.
-
-#### `POST /sessions/pause`
-Pause logic with split behavior.
-
-**Body:**
-
-```json
-{
-  "paused_at": "2026-04-02T10:30:00Z",
-  "resumed_at": "2026-04-02T10:40:00Z"
-}
-```
-
-Behavior:
-
-- If pause duration <= threshold: no split.
-- If pause duration > threshold: current session closed and new session created from `resumed_at`.
-
-#### `GET /sessions`
-List sessions with aggregate total focus seconds.
-
-**Query params:**
-
-- `period=day|week|month|custom`
-- `reference_date=YYYY-MM-DD` (for day/week/month)
-- `start_date`, `end_date` (for custom)
-
----
-
-### Distraction Endpoints
-
-#### `POST /distractions/manual`
-Log manually recorded distraction.
-
-**Body:**
-
-```json
-{
-  "session_id": 10,
-  "reason": "Checked phone",
-  "timestamp": "2026-04-02T10:20:00Z"
-}
-```
-
-#### `POST /distractions/inferred`
-Log inferred distraction (e.g., inactivity).
-
-**Body:**
-
-```json
-{
-  "session_id": 10,
-  "inactive_minutes": 12,
-  "reason": "Inferred due to inactivity",
-  "timestamp": "2026-04-02T10:35:00Z"
-}
-```
-
-#### `GET /distractions`
-List distractions with pagination.
-
-**Query params:**
-
-- `day=YYYY-MM-DD` (optional filter)
-- `limit` (1..200)
-- `offset` (>=0)
-
-#### `GET /distractions/summary/daily`
-Daily totals split by manual vs inferred.
-
----
-
-### Analytics Endpoint
-
-#### `GET /analytics/productivity`
-Aggregated productivity metrics.
-
-**Query params:**
-
-- `period=day|week|month`
-- `reference_date=YYYY-MM-DD` (optional)
-
-**Returns:**
-
-- overview (focus seconds, distractions, avg session, count)
-- focus grouped by tag
-- distractions grouped by hour
-
----
-
-### Insights Endpoint
-
-#### `GET /insights/recommendations`
-Rule-based personalized recommendations from recent behavior.
-
-Examples:
-
-- Best focus window
-- Evening distraction pattern
-- Session length optimization
-- Low-data fallback message
-
----
-
-### Reports Endpoint
-
-#### `GET /reports`
-Fetch historical generated reports.
-
-**Query params:**
-
-- `report_type=daily|weekly` (optional)
-- `limit` (1..100)
-- `offset` (>=0)
-- `start_date` (optional)
-- `end_date` (optional)
-
-Response includes:
-
-- `items`
-- `total_count`
-
----
-
-## Caching Strategy
-
-FlowSense caches analytics response payloads in Redis.
-
-### Cache key pattern
-
-`analytics:productivity:user:{user_id}:period:{period}:ref:{reference}`
-
-### TTL
-
-Configured by `ANALYTICS_CACHE_TTL_SECONDS`.
-
-### Invalidation
-
-Analytics cache for a user is invalidated when:
-
-- sessions are started/stopped/split
-- distractions are logged
-
-This keeps reads fast while preserving data freshness.
-
----
-
-## Scheduler and Automated Reports
-
-APScheduler is started during app lifespan startup and stopped gracefully on shutdown.
-
-### Jobs
-
-- **Daily reports:** 21:00 UTC
-- **Weekly reports:** Sundays at 21:00 UTC
-
-Each job computes aggregate metrics and stores textual summaries in `report_logs`.
-
----
-
-## Demo Data Seeding
-
-Use the seed script to quickly prepare demo-ready data:
-
-```bash
-python scripts/seed_demo_data.py
-```
-
-Creates:
-
-- demo user: `demo@flowsense.local`
-- password: `demo-password`
-- sample tags/sessions/distractions
-
-If the demo user already exists, script exits safely.
-
----
-
-## Error Handling and API Behavior
-
-FlowSense defines centralized exception handlers:
-
-- HTTP exceptions are normalized to:
-
-```json
-{
-  "error": {
-    "type": "http_error",
-    "message": "..."
-  }
-}
-```
-
-- Validation errors are normalized to:
-
-```json
-{
-  "error": {
-    "type": "validation_error",
-    "message": "Request validation failed",
-    "details": [...]
-  }
-}
-```
-
----
-
-## Known Runtime Notes
-
-- You need PostgreSQL and Redis available (or run via Docker Compose).
-- Scheduler jobs run in UTC by default.
-- API date filtering currently uses UTC boundaries.
-- For production, use a strong JWT secret and secure deployment settings.
-
----
-
-## How to Extend FlowSense
-
-Potential next upgrades:
-
-- Add refresh tokens and token revocation
-- Add per-user configurable distraction thresholds and report time windows
-- Add richer report formats (JSON dashboards)
-- Add full integration test suite using ephemeral Postgres + Redis
-- Add observability (structured logs, metrics, traces)
-
----
-
-FlowSense is now structured as a complete backend product foundation, ready for demonstration, extension, and deeper quality hardening.
+End-to-end tests run against a live server (`pip install -r e2e\requirements.txt`, then
+`python -m playwright install chromium`): `ui_smoke.py`, `agent_flow.py`, `camera_flow.py`,
+`dashboard_smoke.py` and `reports_smoke.py` in `e2e\`. GitHub Actions runs all of the above, builds the Docker
+image and the Windows app on every push.
+
+### Measured resource use
+
+| State | CPU | Memory (app process) |
+|---|---|---|
+| Idle, signed in | 0.1% of one core | ~120 MB |
+| Session with screen tracking | 0.1% | ~121 MB |
+| Session with screen + camera tracking | ~17% | ~164 MB |
+
+Measured with `python desktop\benchmark.py` on Windows 11. The window's web view adds about 120 MB, and PostgreSQL about 50 MB.
